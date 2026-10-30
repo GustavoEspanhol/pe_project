@@ -1,0 +1,83 @@
+UFABC Zipz - Instruções de compilação, uso e testes
+
+1) Compilação
+   make all
+
+2) Execução
+   ./ufabc_zipz
+
+3) Fluxo de uso
+   - No menu, escolha 1 para comprimir.
+   - Informe caminho absoluto ou relativo do arquivo de entrada.
+   - O programa gera "<entrada>.zipz" sem sobrescrever arquivo existente.
+   - Escolha 2 para descomprimir.
+   - Informe o arquivo .zipz e o nome/caminho do arquivo restaurado.
+   - O programa não sobrescreve arquivo de saída existente.
+
+4) Formato do cabeçalho .zipz (didático)
+   - magic number: 4 bytes ("ZPZ1")
+   - tamanho original: unsigned long
+   - tabela de frequências: 256 * unsigned long
+   - bits válidos no último byte de dados: 1 byte (0 para arquivo vazio)
+
+5) Decisões de projeto (resumo)
+   - Heap mínimo próprio (min_heap) para montar a árvore de Huffman sem qsort.
+   - Dicionário por símbolo (0..255), armazenando bits e comprimento do código.
+   - Leitura/escrita em blocos e I/O de bits com buffer dedicado.
+   - Casos de borda: arquivo vazio, símbolo único, arquivo inexistente,
+     falha de escrita e magic number inválido.
+
+6) Roteiro de testes sugerido (redundância baixa, média e alta)
+
+   # Baixa redundância (dados pseudoaleatórios)
+   dd if=/dev/urandom of=baixa.bin bs=1K count=512
+
+   # Média redundância (texto natural)
+   cp leia-me.txt media.txt
+
+   # Alta redundância (símbolos repetidos)
+   yes "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" | head -c 524288 > alta.txt
+
+   # Executar compressão/descompressão no UFABC Zipz pelo menu
+   # (gera *.zipz e restaurados)
+
+   # Comparar integridade
+   cmp baixa.bin baixa_restaurado.bin
+   cmp media.txt media_restaurado.txt
+   cmp alta.txt alta_restaurado.txt
+
+   # Comparar com gzip (tamanho, razão e tempo)
+   /usr/bin/time -f "tempo=%E" gzip -k -c baixa.bin > baixa.bin.gz
+   /usr/bin/time -f "tempo=%E" gzip -k -c media.txt > media.txt.gz
+   /usr/bin/time -f "tempo=%E" gzip -k -c alta.txt > alta.txt.gz
+
+   ls -l baixa.bin baixa.bin.zipz baixa.bin.gz
+   ls -l media.txt media.txt.zipz media.txt.gz
+   ls -l alta.txt alta.txt.zipz alta.txt.gz
+
+7) Modelo de tabela de resultados
+
+   | Cenário | Tamanho original | Tamanho zipz | Razão zipz (Sc/So) | Tempo zipz (s) |
+   |---------|------------------|--------------|---------------------|----------------|
+   | Baixa   |                  |              |                     |                |
+   | Média   |                  |              |                     |                |
+   | Alta    |                  |              |                     |                |
+
+   | Cenário | Tamanho gzip | Razão gzip | Tempo gzip (s) |
+   |---------|--------------|------------|----------------|
+   | Baixa   |              |            |                |
+   | Média   |              |            |                |
+   | Alta    |              |            |                |
+
+8) Análise esperada (zipz Huffman vs gzip)
+   - Huffman por byte tende a piorar em dados com baixa redundância por causa do
+     cabeçalho e pouca repetição útil.
+   - Em redundância média/alta, Huffman pode comprimir bem, mas o gzip geralmente
+     supera por combinar LZ77 + Huffman (explora repetição de sequências + símbolos).
+
+9) Funcionalidades extras (sem violar requisitos)
+   - Checksum no cabeçalho (ex.: CRC32 próprio) para validar integridade no restore.
+   - Modo verboso para imprimir estatísticas da árvore e frequência dos símbolos.
+   - Busca em arquivo comprimido com índice auxiliar de blocos descomprimidos.
+   - Evolução: Huffman de palavras para textos ou pipeline LZ77 + Huffman para
+     aproximar desempenho do gzip.
