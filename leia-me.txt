@@ -1,0 +1,127 @@
+UFABC Zipz - Huffman em nivel de bytes
+=======================================
+
+Compilacao
+----------
+No Linux com GCC, entre no diretorio do projeto e execute:
+
+    make
+
+As opcoes usadas sao -std=c89 -Wall -Wextra -pedantic. Para remover os
+arquivos objeto e o executavel:
+
+    make clean
+
+Uso
+---
+Execute ./ufabc-zipz. O menu permite comprimir, descomprimir ou sair.
+Informe caminhos relativos ou absolutos; caminhos com espacos sao aceitos.
+A compressao cria automaticamente <arquivo>.zipz. Na descompressao, informe
+o caminho de destino. O programa recusa destinos ja existentes e nao altera
+o arquivo de entrada.
+
+Formato .zipz, versao 1
+----------------------
+O cabecalho tem 2062 bytes: magic de 4 bytes "UZPZ", versao de 1 byte,
+tamanho original em 8 bytes big-endian, quantidade de bits validos no ultimo
+byte (0 para arquivo vazio; 1 a 8 para arquivo nao vazio) e 256 frequencias,
+cada uma em 8 bytes big-endian. Em seguida vem o fluxo Huffman, com bits
+mais significativos primeiro; bits de preenchimento no fim sao zero.
+A arvore e reconstruida deterministicamente da tabela de frequencias. O
+tamanho original delimita a decodificacao. A frequencia reconstruida e a
+quantidade de bits validos tambem sao conferidas.
+
+Etapas do algoritmo
+-------------------
+1. Analise de frequencia: primeira leitura em blocos de 8192 bytes.
+2. Construcao da arvore: heap minimo binario proprio, com desempate estavel.
+3. Geracao dos codigos prefixados: percurso da arvore; folha unica recebe 0.
+4. Codificacao: segunda leitura em blocos e escrita de bits em buffer; o
+   cabecalho e gravado antes dos dados.
+5. Decodificacao: leitura do cabecalho, reconstrução da arvore e traducao
+   dos bits para bytes, com saida em blocos.
+
+Casos de borda e limites
+-----------------------
+Arquivo vazio gera apenas cabecalho e restaura vazio. Um unico simbolo usa
+codigo de um bit para evitar fluxo de tamanho zero. Entradas inexistentes,
+magic/versao incorretos, tabelas inconsistentes, truncamento e falhas de
+escrita causam erro; uma saida parcial criada pela operacao e removida.
+Tamanhos usam unsigned long na memoria e campo de 64 bits no arquivo; em
+plataformas em que unsigned long e menor, valores fora do limite local sao
+recusados. Nomes de arquivo sao limitados a 4095 bytes pela interface.
+
+O C padrao nao oferece abertura exclusiva de arquivo. O programa verifica
+que o destino nao existe antes de cria-lo; em uso concorrente, outra
+aplicacao poderia criar esse nome entre a verificacao e a abertura.
+
+Roteiro de testes
+-----------------
+Use tres arquivos de tamanhos semelhantes. Exemplos de dados:
+
+* Baixa redundancia: dados.bin de bytes pseudoaleatorios.
+* Redundancia media: texto misturando texto, espacos e dados variaveis.
+* Alta redundancia: repetir uma mesma frase muitas vezes.
+
+No Linux com GNU coreutils e awk, gere exemplos de 1 MiB:
+
+    dd if=/dev/urandom of=baixa.bin bs=1048576 count=1 status=none
+    awk 'BEGIN { for (i=0; i<20000; i++) printf "registro %05d UFABC Huffman dados estruturados\n", i % 1000 }' > media.txt
+    awk 'BEGIN { for (i=0; i<30000; i++) print "UFABC Zipz comprime dados repetidos com Huffman" }' > alta.txt
+
+Para cada cenario, compare o Zipz e gzip. O comando abaixo mede tempo e
+tamanho; gzip -k preserva o original:
+
+    /usr/bin/time -f 'gzip: %e s' gzip -k -c entrada > entrada.gz
+    wc -c entrada entrada.zipz entrada.gz
+    ./ufabc-zipz
+
+Registre o tempo de compressao informado pelo Zipz e, para gzip, o tempo do
+comando. Para comparar tempos de descompressao:
+
+    /usr/bin/time -f 'gzip descompressao: %e s' gzip -dc entrada.gz > gzip-restaurado
+
+Para testar ida e volta, escolha outro nome de destino no menu e compare:
+
+    cmp entrada restaurado
+    cmp entrada gzip-restaurado
+
+O codigo de saida zero do cmp indica igualdade byte a byte. Remova os
+resultados de testes manualmente antes de repetir, pois destinos existentes
+sao protegidos.
+
+Tabela para resultados
+----------------------
+Cenário | Algoritmo | Original (bytes) | Comprimido (bytes) | R=Sc/So | Compressao (s) | Descompressao (s)
+Baixa   | Zipz      |                  |                    |         |                |
+Baixa   | gzip      |                  |                    |         |                |
+Media   | Zipz      |                  |                    |         |                |
+Media   | gzip      |                  |                    |         |                |
+Alta    | Zipz      |                  |                    |         |                |
+Alta    | gzip      |                  |                    |         |                |
+
+Discussao esperada
+------------------
+Huffman atribui codigos curtos a bytes frequentes, mas nao identifica
+repeticoes de sequencias. Em dados com distribuicao de bytes muito
+desigual e repeticao local limitada, pode se aproximar do gzip. Em textos
+com palavras/frases repetidas e arquivos com blocos duplicados, gzip costuma
+ser menor porque combina LZ77 com Huffman. Em dados ja comprimidos ou quase
+uniformes, o cabecalho fixo de 2062 bytes pode fazer o Zipz crescer; gzip
+tambem tem cabecalho, mas seu metodo e mais adaptavel.
+
+Extensoes possiveis
+------------------
+Checksum: acrescentar CRC-32 ao cabecalho ou rodape e conferir durante a
+descompressao, implementando a tabela/polinomio no proprio projeto.
+Modo verboso: exibir frequencias, codigos e etapas no stderr.
+Huffman de palavras: substituir simbolos-byte por tokens delimitados e
+definir como preservar exatamente separadores e bytes arbitrarios.
+LZ77 + Huffman: gerar tokens de literal ou (distancia, comprimento), depois
+codificar tokens com Huffman; isso requer novo formato/versionamento.
+Busca comprimida: requer indice de blocos ou pontos de reinicio; o formato
+atual exige decodificar desde o inicio.
+
+Nota academica: use o projeto para estudo, revise as estruturas e adapte a
+solucao. Explique o heap, o formato binario, a codificacao de bits e os casos
+de borda durante a apresentacao.

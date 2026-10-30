@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Apresentação técnica do UFABC Zipz, compressor didático de arquivos com Huffman em nível de bytes.">
+  <title>UFABC Zipz | Como bytes viram bits</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f2f5f1;
+      --surface: #ffffff;
+      --ink: #16251f;
+      --muted: #596961;
+      --line: #d7dfd9;
+      --green: #1d6652;
+      --green-dark: #123d33;
+      --red: #c94f35;
+      --yellow: #e4c85a;
+      --blue: #477a9a;
+      --code: #15241f;
+      --code-ink: #e8f0eb;
+      --radius: 8px;
+      --content: 1180px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 26px; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 17px;
+      line-height: 1.65;
+    }
+    a { color: var(--green); text-underline-offset: 3px; }
+    a:hover { color: var(--red); }
+    code, pre, .sans, .eyebrow, nav, table, .label, .stat, .chip {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    code { font-size: .88em; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      background: var(--green-dark);
+      color: #f6f8f3;
+      border-bottom: 5px solid var(--yellow);
+    }
+    .hero::after {
+      position: absolute;
+      content: "";
+      width: 380px;
+      height: 380px;
+      right: max(4vw, calc((100vw - var(--content)) / 2));
+      top: -210px;
+      border: 1px solid rgba(228, 200, 90, .38);
+      border-radius: 50%;
+      box-shadow: 0 0 0 38px rgba(228, 200, 90, .05),
+                  0 0 0 78px rgba(228, 200, 90, .04);
+      pointer-events: none;
+    }
+    .hero-inner, .layout {
+      width: min(var(--content), calc(100% - 48px));
+      margin-inline: auto;
+    }
+    .hero-inner { position: relative; z-index: 1; padding: 66px 0 58px; }
+    .eyebrow {
+      color: var(--yellow);
+      font-size: .76rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 800px;
+      margin: 12px 0 16px;
+      font-size: clamp(2.6rem, 7vw, 5.3rem);
+      font-weight: 500;
+      line-height: 1.02;
+    }
+    .hero p { max-width: 680px; color: #d4e1d9; font-size: 1.14rem; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 25px; }
+    .chip {
+      padding: 5px 10px;
+      border: 1px solid rgba(246, 248, 243, .28);
+      border-radius: 3px;
+      color: #edf2eb;
+      font-size: .75rem;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 44px;
+      align-items: start;
+      padding: 38px 0 80px;
+    }
+    nav {
+      position: sticky;
+      top: 20px;
+      padding: 18px 0;
+      border-top: 2px solid var(--green);
+      font-size: .78rem;
+      line-height: 1.4;
+    }
+    nav strong { display: block; margin-bottom: 12px; color: var(--green-dark); }
+    nav a {
+      display: block;
+      padding: 7px 8px;
+      border-left: 2px solid transparent;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    nav a:hover, nav a:focus {
+      border-left-color: var(--red);
+      color: var(--ink);
+      background: rgba(255,255,255,.55);
+    }
+    main { min-width: 0; }
+    section { padding: 8px 0 42px; border-bottom: 1px solid var(--line); }
+    section + section { padding-top: 38px; }
+    h2 {
+      margin-bottom: 10px;
+      color: var(--green-dark);
+      font-size: clamp(1.7rem, 4vw, 2.45rem);
+      font-weight: 500;
+      line-height: 1.14;
+    }
+    h3 { margin: 24px 0 8px; font-size: 1.25rem; line-height: 1.25; }
+    .section-lead { max-width: 760px; color: var(--muted); font-size: 1.05rem; }
+    .small { color: var(--muted); font-size: .9rem; }
+    .callout {
+      margin: 22px 0;
+      padding: 17px 19px;
+      border-left: 4px solid var(--yellow);
+      background: #fffdf2;
+    }
+    .callout.alert { border-left-color: var(--red); background: #fff4f0; }
+    .callout strong { color: var(--green-dark); }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 24px 0 10px;
+      counter-reset: flow;
+    }
+    .flow-step {
+      position: relative;
+      min-height: 138px;
+      padding: 16px 14px;
+      border: 1px solid var(--line);
+      border-top: 3px solid var(--green);
+      background: var(--surface);
+      counter-increment: flow;
+    }
+    .flow-step::before {
+      content: "0" counter(flow);
+      display: block;
+      margin-bottom: 12px;
+      color: var(--red);
+      font: 700 .76rem "SFMono-Regular", Consolas, monospace;
+    }
+    .flow-step b { display: block; margin-bottom: 4px; font-size: 1rem; }
+    .flow-step span { color: var(--muted); font-size: .87rem; line-height: 1.4; }
+    .module-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 20px 0; }
+    .module {
+      padding: 15px 16px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+    }
+    .module code { display: inline-block; margin-bottom: 6px; color: var(--green); font-weight: 700; }
+    .module p { margin: 0; color: var(--muted); font-size: .91rem; }
+    pre {
+      overflow-x: auto;
+      margin: 15px 0;
+      padding: 17px 19px;
+      border-radius: var(--radius);
+      background: var(--code);
+      color: var(--code-ink);
+      font-size: .83rem;
+      line-height: 1.55;
+      tab-size: 4;
+    }
+    pre code { color: inherit; font-size: inherit; }
+    .code-caption { margin: -7px 0 18px; color: var(--muted); font-size: .82rem; }
+    .table-wrap { overflow-x: auto; margin: 18px 0; }
+    table { width: 100%; border-collapse: collapse; background: var(--surface); font-size: .82rem; line-height: 1.45; }
+    th, td { padding: 11px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #e7eee8; color: var(--green-dark); }
+    .diagram {
+      margin: 22px 0;
+      padding: 20px;
+      border: 1px solid var(--line);
+      background-color: var(--surface);
+      background-image: linear-gradient(rgba(29,102,82,.045) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(29,102,82,.045) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .byte-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0; }
+    .byte {
+      display: grid;
+      min-width: 34px;
+      min-height: 36px;
+      place-items: center;
+      padding: 3px 7px;
+      border: 1px solid #aac2b5;
+      background: #f2f8f3;
+      color: var(--green-dark);
+      font: 700 .8rem Consolas, monospace;
+    }
+    .byte.hot { border-color: var(--red); background: #fff3ef; color: #8d321f; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 20px 0; }
+    .stat { padding: 15px; border-top: 3px solid var(--yellow); background: var(--surface); }
+    .stat b { display: block; color: var(--green-dark); font-size: 1.2rem; }
+    .stat span { color: var(--muted); font-size: .78rem; }
+    details { margin: 12px 0; border: 1px solid var(--line); background: var(--surface); }
+    summary { padding: 12px 15px; color: var(--green-dark); cursor: pointer; font-weight: 700; }
+    details > div { padding: 0 15px 14px; }
+    details p:last-child { margin-bottom: 0; }
+    .talk-track { padding: 20px 22px; border-left: 4px solid var(--blue); background: #edf5f8; }
+    .talk-track p { margin-bottom: 0; }
+    footer { padding: 22px 24px 34px; border-top: 1px solid var(--line); color: var(--muted); font-size: .82rem; text-align: center; }
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; gap: 20px; }
+      nav { position: static; padding: 12px 0; }
+      nav div { display: flex; flex-wrap: wrap; gap: 3px; }
+      nav a { padding: 7px 9px; }
+      .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px) {
+      .hero-inner, .layout { width: min(100% - 30px, var(--content)); }
+      .hero-inner { padding: 45px 0 39px; }
+      .module-grid, .stats { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr 1fr; }
+      .flow-step { min-height: 125px; padding: 12px; }
+      body { font-size: 16px; }
+    }
+    @media print {
+      body { background: white; font-size: 11pt; }
+      .hero { background: white; color: var(--ink); border-bottom: 2px solid var(--green); }
+      .hero p, .hero .chip { color: var(--muted); }
+      .hero .chip { border-color: var(--line); }
+      .hero::after, nav { display: none; }
+      .hero-inner, .layout { width: 100%; }
+      .layout { display: block; padding-top: 20px; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; print-color-adjust: exact; }
+      section { break-inside: avoid; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="eyebrow">Apresentação técnica · Estruturas de dados</div>
+      <h1>UFABC Zipz</h1>
+      <p>Como uma tabela de frequências se transforma em uma árvore, e como essa árvore transforma arquivos em sequências compactas de bits.</p>
+      <div class="hero-meta" aria-label="Características do projeto">
+        <span class="chip">C89 / GCC</span>
+        <span class="chip">Huffman por byte</span>
+        <span class="chip">Formato binário .zipz</span>
+        <span class="chip">Sem biblioteca de compressão</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav aria-label="Navegação da apresentação">
+      <strong>Conteúdo</strong>
+      <div>
+        <a href="#ideia">A ideia</a>
+        <a href="#arquitetura">Arquitetura</a>
+        <a href="#compressao">Compressão</a>
+        <a href="#arvore">Heap e árvore</a>
+        <a href="#dicionario">Códigos</a>
+        <a href="#formato">Formato .zipz</a>
+        <a href="#descompressao">Descompressão</a>
+        <a href="#bordas">Bordas e segurança</a>
+        <a href="#medicao">Medição e gzip</a>
+        <a href="#apresentacao">Roteiro de fala</a>
+      </div>
+    </nav>
+
+    <main>
+      <section id="ideia">
+        <div class="eyebrow">01 · Problema e solução</div>
+        <h2>A ideia em uma frase</h2>
+        <p class="section-lead">O UFABC Zipz conta quantas vezes cada byte aparece, dá códigos menores aos bytes mais frequentes e grava a sequência resultante em bits.</p>
+        <p>O algoritmo de Huffman é uma codificação sem perda: a descompressão recupera exatamente os bytes originais. O projeto trabalha com um alfabeto de 256 símbolos possíveis, correspondente a todos os valores de um byte. Por isso, o conteúdo pode ser texto ou arquivo binário, sem depender de UTF-8, ASCII ou de um tipo específico de documento.</p>
+        <div class="stats">
+          <div class="stat"><b>256</b><span>símbolos de byte possíveis</span></div>
+          <div class="stat"><b>2 leituras</b><span>frequências primeiro; codificação depois</span></div>
+          <div class="stat"><b>Sem perda</b><span>os bytes restaurados devem ser idênticos</span></div>
+        </div>
+        <div class="diagram" aria-label="Exemplo de codificação por frequência">
+          <strong>Intuição: frequência maior, código menor</strong>
+          <div class="byte-row" aria-label="Exemplo abstrato de frequências">
+            <span class="byte hot">A · 0</span><span class="byte hot">A · 0</span><span class="byte hot">A · 0</span>
+            <span class="byte">B · 1</span><span class="byte">C · 2</span>
+          </div>
+          <p class="small">O desenho mostra somente a ideia. Os códigos reais dependem da árvore construída para as frequências daquele arquivo.</p>
+        </div>
+        <div class="callout"><strong>Razão de compressão.</strong> O programa usa <code>R = Sc / So</code>, em que <code>Sc</code> é o tamanho comprimido e <code>So</code> o tamanho original. Menos de 1 significa que o arquivo diminuiu; maior que 1 significa que cresceu. O cabeçalho fixo torna arquivos pequenos especialmente suscetíveis a crescer.</div>
+      </section>
+
+      <section id="arquitetura">
+        <div class="eyebrow">02 · Organização do código</div>
+        <h2>Um módulo para cada responsabilidade</h2>
+        <p class="section-lead">A interface de terminal não implementa Huffman. Ela coleta caminhos e delega o trabalho aos módulos especializados.</p>
+        <div class="module-grid">
+          <div class="module"><code><a href="./main.c">main.c</a></code><p>Menu, leitura de caminhos, extensão de saída, medição de tempo e mensagens ao usuário.</p></div>
+          <div class="module"><code><a href="./compressor.c">compressor.c</a></code><p>Orquestra as passagens pelo arquivo, o cabeçalho, a codificação, a decodificação e o tratamento de falhas.</p></div>
+          <div class="module"><code><a href="./huffman_tree.c">huffman_tree.c</a></code><p>Cria, combina e libera nós da árvore de Huffman.</p></div>
+          <div class="module"><code><a href="./min_heap.c">min_heap.c</a></code><p>Fila de prioridade própria: mantém acessível o nó de menor frequência.</p></div>
+          <div class="module"><code><a href="./dictionary.c">dictionary.c</a></code><p>Percorre a árvore e armazena código, comprimento e frequência para cada byte.</p></div>
+          <div class="module"><code><a href="./bitio.c">bitio.c</a></code><p>Empacota e desempacota bits usando buffers, sem uma chamada de arquivo por bit.</p></div>
+        </div>
+        <p>Os arquivos <code>.h</code> definem as interfaces e os tipos compartilhados; os arquivos <code>.c</code> contêm as implementações. O <a href="./Makefile">Makefile</a> compila o projeto com <code>-std=c89 -Wall -Wextra -pedantic</code>.</p>
+      </section>
+
+      <section id="compressao">
+        <div class="eyebrow">03 · Primeira passagem</div>
+        <h2>Compressão: medir antes de codificar</h2>
+        <p>Em <code>compressor_compress</code>, o arquivo é aberto com <code>fopen(input_path, "rb")</code>. A primeira leitura não escreve dados comprimidos: ela conta os bytes e preenche um vetor com 256 posições.</p>
+        <pre><code>unsigned long frequencies[256];
+unsigned long total;
+unsigned char buffer[8192];
+
+while ((count = fread(buffer, 1, sizeof(buffer), input)) != 0) {
+    total += (unsigned long)count;
+    for (index = 0; index &lt; count; ++index)
+        ++frequencies[buffer[index]];
+}</code></pre>
+        <p class="code-caption">Trecho conceitual de <code>count_input</code>; a implementação também verifica overflow e erros de leitura.</p>
+        <p>Por exemplo, se o byte <code>0x41</code> aparecer 500 vezes, a posição <code>frequencies[65]</code> recebe 500. O índice é o próprio valor numérico do byte. A leitura ocorre em blocos de 8192 bytes, reduzindo o custo de chamadas de I/O.</p>
+        <h3>Por que são necessárias duas leituras?</h3>
+        <p>O código precisa conhecer as frequências completas para construir os códigos antes de começar a emitir o fluxo Huffman. Depois da análise, usa <code>fseek(input, 0, SEEK_SET)</code> para retornar ao início e faz a segunda leitura, agora codificando. Também recalcula as frequências nessa segunda passagem e compara as tabelas; isso detecta mudanças no arquivo entre as leituras.</p>
+      </section>
+
+      <section id="arvore">
+        <div class="eyebrow">04 · Estrutura de dados</div>
+        <h2>Heap mínimo constrói a árvore</h2>
+        <p>Uma folha representa cada byte com frequência diferente de zero. Cada nó guarda frequência, símbolo mínimo da subárvore, ordem de criação e ponteiros para os filhos. Nós internos representam a soma de duas frequências e não correspondem a um byte de entrada.</p>
+        <pre><code>typedef struct HuffmanNode {
+    unsigned long frequency;
+    unsigned long order;
+    unsigned int minimum_symbol;
+    unsigned char symbol;
+    int is_leaf;
+    struct HuffmanNode *left;
+    struct HuffmanNode *right;
+} HuffmanNode;</code></pre>
+        <p>O processo começa com até 256 folhas no heap. Repetidamente, remove os dois menores nós, cria um pai e reinsere esse pai. Quando resta uma raiz, a árvore está pronta. O heap ordena por frequência e resolve empates por símbolo mínimo e ordem; isso torna a construção reproduzível.</p>
+        <div class="diagram">
+          <strong>Exemplo didático: A aparece 5 vezes; B aparece 2 vezes</strong>
+          <pre><code>           [7]
+          /   \
+      B [2]   A [5]
+        0       1</code></pre>
+          <p class="small">Neste exemplo, <code>B = 0</code> e <code>A = 1</code>. O código real pode inverter os lados conforme a regra de desempate e as frequências.</p>
+        </div>
+        <p>Para <code>k</code> símbolos diferentes, a construção com heap custa aproximadamente <code>O(k log k)</code>. Como <code>k ≤ 256</code>, a tabela e a árvore são pequenas mesmo que o arquivo seja grande. A função <code>huffman_tree_free</code> percorre recursivamente os filhos e libera cada nó.</p>
+      </section>
+
+      <section id="dicionario">
+        <div class="eyebrow">05 · Códigos prefixados</div>
+        <h2>Da árvore ao dicionário de bits</h2>
+        <p><code>dictionary_from_tree</code> percorre a árvore recursivamente. Ao descer para a esquerda, acrescenta <code>0</code>; para a direita, acrescenta <code>1</code>. Quando encontra uma folha, grava o caminho no vetor correspondente ao byte.</p>
+        <pre><code>path[depth] = 0;
+fill_dictionary(dictionary, node-&gt;left, path, depth + 1);
+
+path[depth] = 1;
+fill_dictionary(dictionary, node-&gt;right, path, depth + 1);</code></pre>
+        <p>Esses códigos são prefixados: uma folha não pode ser ancestral de outra folha. Na decodificação, basta ler bits até encontrar uma folha; não é necessário guardar separadores entre os códigos.</p>
+        <div class="callout alert"><strong>Limitação real do código atual.</strong> <code>HUFFMAN_MAX_CODE_BITS</code> permite caminhos de até 255 bits, mas <code>DictionaryEntry.bits</code> tem somente 32 posições. Se uma árvore produzir código maior que 32 bits, <code>fill_dictionary</code> pode escrever além do vetor. Para alinhar capacidade e limite, a declaração deve ser <code>unsigned char bits[HUFFMAN_MAX_CODE_BITS]</code>. Corrija e teste esse ponto antes de apresentar o programa como robusto para todas as distribuições de frequência.</div>
+        <p>Uma árvore com apenas uma folha é um caso especial: o caminho normal tem comprimento zero. O programa atribui o código <code>0</code>, de um bit, a esse único símbolo. Assim, cada ocorrência continua representada no fluxo e o decodificador consegue validar os bits consumidos.</p>
+      </section>
+
+      <section id="formato">
+        <div class="eyebrow">06 · Persistência</div>
+        <h2>O que existe dentro de um arquivo .zipz?</h2>
+        <p>O cabeçalho ocupa 2062 bytes. Ele guarda informação suficiente para verificar o formato e reconstruir a árvore, sem serializar ponteiros ou depender do layout de uma <code>struct</code> C.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Ordem</th><th>Campo</th><th>Tamanho</th><th>Uso</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>Magic <code>UZPZ</code></td><td>4 bytes</td><td>Identifica o formato.</td></tr>
+              <tr><td>2</td><td>Versão</td><td>1 byte</td><td>Atualmente <code>1</code>; distingue futuras versões.</td></tr>
+              <tr><td>3</td><td>Tamanho original</td><td>8 bytes</td><td>Limita quantos bytes o decodificador deve produzir.</td></tr>
+              <tr><td>4</td><td>Bits válidos no último byte</td><td>1 byte</td><td>Informa quais bits finais pertencem ao fluxo.</td></tr>
+              <tr><td>5</td><td>256 frequências</td><td>2048 bytes</td><td>Permite reconstruir deterministicamente a árvore.</td></tr>
+              <tr><td>6</td><td>Payload Huffman</td><td>Variável</td><td>Códigos empacotados; começa após o cabeçalho.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>O total do cabeçalho é <code>4 + 1 + 8 + 1 + (256 × 8) = 2062 bytes</code>. Os contadores são gravados em big-endian pelas funções <code>write_ulong</code> e <code>read_ulong</code>. Isso define a ordem dos bytes no arquivo, embora o maior valor representável em memória ainda dependa do tamanho de <code>unsigned long</code> da plataforma.</p>
+        <p><strong>A árvore não é gravada no arquivo.</strong> O descompactador lê as frequências, chama o mesmo construtor de árvore e obtém a mesma forma porque o desempate do heap é determinístico.</p>
+        <div class="callout"><strong>Padding.</strong> O payload é escrito do bit mais significativo para o menos significativo. Se o último byte ficar incompleto, o escritor desloca os bits para a esquerda e completa o fim com zeros. O cabeçalho registra quantos bits desse último byte são válidos. Para um payload não vazio que termina exatamente numa fronteira de byte, o campo vale 8; para arquivo vazio, vale 0.</div>
+      </section>
+
+      <section id="descompressao">
+        <div class="eyebrow">07 · Caminho inverso</div>
+        <h2>Decodificar é caminhar pela árvore</h2>
+        <p><code>compressor_decompress</code> abre a entrada em <code>rb</code> e valida magic, versão, tamanho, bits válidos e frequências antes de começar a produzir o arquivo restaurado.</p>
+        <ol>
+          <li><strong>Valida o cabeçalho.</strong> A soma das 256 frequências deve ser igual ao tamanho original; os campos truncados ou inconsistentes são rejeitados.</li>
+          <li><strong>Reconstrói a árvore.</strong> Usa a tabela do cabeçalho e o mesmo heap mínimo determinístico.</li>
+          <li><strong>Lê os bits.</strong> <code>bit_reader_read_bit</code> extrai um bit do byte atual, do mais significativo para o menos significativo.</li>
+          <li><strong>Segue as arestas.</strong> Bit zero significa filho esquerdo; bit um significa filho direito. Ao chegar a uma folha, emite o byte daquele símbolo e volta à raiz.</li>
+          <li><strong>Valida a saída.</strong> Compara frequências decodificadas, tamanho, padding e bytes extras; grava os bytes em blocos de 8192.</li>
+        </ol>
+        <pre><code>node = root;
+while (!node-&gt;is_leaf) {
+    bit_reader_read_bit(&amp;reader, &amp;bit);
+    node = bit == 0 ? node-&gt;left : node-&gt;right;
+}
+output_buffer[output_used++] = node-&gt;symbol;</code></pre>
+        <p class="code-caption">Trecho simplificado do percurso usado para cada símbolo; a implementação também trata leitura curta e erro de I/O.</p>
+      </section>
+
+      <section id="bordas">
+        <div class="eyebrow">08 · Robustez e limites</div>
+        <h2>Casos de borda que o projeto considera</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Caso</th><th>Tratamento</th></tr></thead>
+            <tbody>
+              <tr><td>Arquivo vazio</td><td>Sem árvore e sem payload; gera cabeçalho e restaura zero bytes.</td></tr>
+              <tr><td>Um único byte distinto</td><td>Usa código de um bit por ocorrência e valida que cada bit é zero.</td></tr>
+              <tr><td>Entrada inexistente</td><td><code>fopen</code> falha; a operação retorna erro.</td></tr>
+              <tr><td>Magic ou versão incorretos</td><td>O cabeçalho é rejeitado antes da criação da saída.</td></tr>
+              <tr><td>Arquivo truncado/inconsistente</td><td>Falha de leitura, frequências divergentes ou padding inválido causam erro.</td></tr>
+              <tr><td>Destino já existe</td><td>O programa recusa a operação para evitar sobrescrever o arquivo existente.</td></tr>
+              <tr><td>Falha ao escrever</td><td>As escritas e o fechamento são verificados; uma saída parcial da operação é removida.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>A proteção contra sobrescrita faz uma verificação com <code>output_is_new</code> e depois abre o destino com <code>fopen(..., "wb")</code>. Em um cenário concorrente, outro processo poderia criar o nome entre essas duas operações; C89 não fornece uma abertura exclusiva portável. É uma limitação a conhecer, não uma garantia de segurança contra concorrência.</p>
+        <p>O tamanho em memória usa <code>unsigned long</code>. O cabeçalho reserva 8 bytes, mas uma plataforma na qual <code>unsigned long</code> seja menor não consegue processar todos os valores que cabem no formato de 64 bits. O código verifica overflow ao ler os campos.</p>
+        <details>
+          <summary>O que falta para detectar qualquer corrupção?</summary>
+          <div><p>As verificações estruturais detectam muitos erros, mas não garantem que cada bit veio intacto: uma alteração pode, em princípio, produzir outra sequência com as mesmas frequências. Uma extensão recomendada é gravar um checksum, como CRC-32, e recalculá-lo durante a descompressão.</p></div>
+        </details>
+      </section>
+
+      <section id="medicao">
+        <div class="eyebrow">09 · Avaliação</div>
+        <h2>O que comparar com gzip</h2>
+        <p>Para uma avaliação justa, use os mesmos arquivos, a mesma máquina e várias execuções. Registre tamanho original, tamanho comprimido, razão <code>Sc/So</code>, tempo de compressão e tempo de descompressão. O comando <code>cmp original restaurado</code> confirma igualdade byte a byte; código de saída zero indica que os arquivos são iguais.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Perfil</th><th>O que evidencia</th><th>Resultado esperado</th></tr></thead>
+            <tbody>
+              <tr><td>Baixa redundância / aleatório</td><td>Distribuição de bytes próxima de uniforme.</td><td>Huffman quase não encurta; o cabeçalho pode fazer crescer.</td></tr>
+              <tr><td>Redundância média / texto variado</td><td>Alguns bytes frequentes, com repetições locais.</td><td>Huffman pode reduzir; gzip tende a explorar também padrões.</td></tr>
+              <tr><td>Alta redundância / frase repetida</td><td>Longas sequências reaparecem.</td><td>Huffman reduz o viés de bytes; gzip geralmente ganha com LZ77.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Em uma execução local dos exemplos de teste, o arquivo aleatório de 1.048.576 bytes resultou em 1.050.638 bytes no Zipz e 1.048.764 bytes no gzip. Um texto de 960.000 bytes resultou em 543.812 bytes no Zipz e 51.298 bytes no gzip. Uma sequência repetida de 1.440.000 bytes resultou em 789.562 bytes no Zipz e 4.283 bytes no gzip. São resultados ilustrativos desses arquivos específicos, não uma promessa para todos os dados.</p>
+        <p>O gzip combina LZ77, que representa ocorrências repetidas como referências a trechos anteriores, com codificação Huffman. O UFABC Zipz implementa somente Huffman por byte. Por isso, o Zipz pode se aproximar quando há distribuição de bytes favorável sem muitas sequências repetidas; em texto altamente repetitivo, normalmente se distancia bastante.</p>
+        <details>
+          <summary>Comandos de referência para GNU/Linux</summary>
+          <div>
+            <pre><code># Comprimir com gzip sem alterar o original
+/usr/bin/time -f 'gzip: %e s' gzip -c entrada &gt; entrada.gz
+
+# Comparar os tamanhos
+wc -c entrada entrada.zipz entrada.gz
+
+# Descomprimir gzip e conferir os bytes
+/usr/bin/time -f 'gzip descompressao: %e s' gzip -dc entrada.gz &gt; gzip-restaurado
+cmp entrada restaurado
+cmp entrada gzip-restaurado</code></pre>
+            <p>O tempo mostrado pelo menu do Zipz usa <code>clock()</code>; para comparação experimental, o cronômetro externo deve envolver o programa Zipz e o gzip do mesmo modo.</p>
+          </div>
+        </details>
+      </section>
+
+      <section id="apresentacao">
+        <div class="eyebrow">10 · Fechamento</div>
+        <h2>Roteiro curto para explicar ao grupo</h2>
+        <div class="talk-track">
+          <p>“O UFABC Zipz é um compressor sem perda baseado em Huffman para bytes. Na primeira leitura, contamos as frequências. Com elas, um heap mínimo constrói a árvore combinando sempre os dois símbolos ou subárvores menos frequentes. Um percurso recursivo gera códigos prefixados: esquerda é zero, direita é um. Na segunda leitura, cada byte vira seu código, que é empacotado em bits. O cabeçalho guarda um identificador, versão, tamanho original, frequências e informação dos bits finais. Para descomprimir, validamos o cabeçalho, reconstruímos a mesma árvore e seguimos os bits até as folhas, recuperando cada byte. O formato é simples de estudar, mas o cabeçalho tem custo fixo e o algoritmo não explora repetições longas como o LZ77 usado pelo gzip.”</p>
+        </div>
+        <h3>Extensões possíveis</h3>
+        <ul>
+          <li><strong>Checksum:</strong> detectar corrupção com CRC-32 no cabeçalho ou no final do fluxo.</li>
+          <li><strong>Modo verboso:</strong> exibir frequências, comprimentos dos códigos e estatísticas.</li>
+          <li><strong>Huffman de palavras:</strong> requer definir tokens e preservar separadores e bytes originais sem perda.</li>
+          <li><strong>LZ77 + Huffman:</strong> transformar sequências em literais ou referências e versionar o formato.</li>
+          <li><strong>Busca por blocos:</strong> adicionar pontos de reinício ou índice; o formato atual precisa decodificar desde o início.</li>
+        </ul>
+        <p class="small">Para estudar o código-fonte, comece em <a href="./main.c">main.c</a>, siga para <a href="./compressor.c">compressor.c</a> e depois acompanhe as chamadas de árvore, dicionário e bits. Consulte também o <a href="./leia-me.txt">leia-me.txt</a> para compilação e uso.</p>
+      </section>
+    </main>
+  </div>
+  <footer>UFABC Zipz · Material didático de apresentação · C89 e Huffman em nível de bytes</footer>
+</body>
+</html>
