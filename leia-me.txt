@@ -14,11 +14,15 @@ arquivos objeto e o executavel:
 
 Uso
 ---
-Execute ./ufabc-zipz. O menu permite comprimir, descomprimir ou sair.
+Execute ./ufabc-zipz. O menu permite comprimir, descomprimir ou sair, e tem
+duas opcoes extras: 4 busca uma palavra dentro de um .zipz e 5 analisa a
+redundancia de um arquivo. As opcoes 1 a 3 continuam com os mesmos numeros.
 Informe caminhos relativos ou absolutos; caminhos com espacos sao aceitos.
-A compressao cria automaticamente <arquivo>.zipz. Na descompressao, informe
-o caminho de destino. O programa recusa destinos ja existentes e nao altera
-o arquivo de entrada.
+A compressao cria automaticamente <arquivo>.zipz. Antes de comprimir, o
+programa mostra um resumo da analise de redundancia; se o .zipz for ficar
+maior que o original, pergunta se deve comprimir mesmo assim. Na
+descompressao, informe o caminho de destino. O programa recusa destinos ja
+existentes e nao altera o arquivo de entrada.
 
 Formato .zipz, versao 1
 ----------------------
@@ -39,7 +43,47 @@ Etapas do algoritmo
 4. Codificacao: segunda leitura em blocos e escrita de bits em buffer; o
    cabecalho e gravado antes dos dados.
 5. Decodificacao: leitura do cabecalho, reconstrução da arvore e traducao
-   dos bits para bytes, com saida em blocos.
+   dos bits para bytes, com saida em blocos. Fica em decoder.c, que entrega
+   um byte por chamada e e usado tanto pela descompressao quanto pela busca.
+
+Busca em arquivo .zipz (opcao 4)
+--------------------------------
+Procura uma palavra ou trecho direto no .zipz, sem criar arquivo. Os bytes
+sao decodificados um a um e passam por uma busca KMP, que nao volta atras no
+texto; assim so o buffer de leitura de 8 KB fica em memoria, qualquer que seja
+o tamanho do arquivo. Mostra o total de ocorrencias e as 20 primeiras
+posicoes: byte contado a partir de 0 (o mesmo numero de grep -b), linha e
+coluna contadas a partir de 1. A busca diferencia maiusculas de minusculas e
+conta ocorrencias sobrepostas ("aa" aparece 2 vezes em "aaa"). Como o .zipz
+e lido ate o fim, o arquivo tambem e validado: um .zipz cortado ou alterado
+gera erro em vez de um resultado parcial.
+
+Analise de redundancia (opcao 5)
+--------------------------------
+Le o arquivo uma vez e calcula, sem comprimir:
+
+* Entropia de ordem 0: H = soma de p * log2(1/p) sobre os 256 bytes, em
+  bits por byte. Vai de 0 (um byte so) a 8 (bytes uniformes).
+* Razao minima teorica: H / 8. Nenhum codigo que trate cada byte
+  isoladamente, como o Huffman do Zipz, fica abaixo disso.
+* Razao prevista do Zipz: monta a mesma arvore da compressao e soma
+  frequencia x tamanho do codigo de cada byte, mais o cabecalho de 2062
+  bytes. O valor e exatamente o tamanho do .zipz que sera gerado.
+* Trechos de 8 bytes repetidos: fracao das janelas de 8 bytes que ja tinham
+  aparecido antes no arquivo. Mede a repeticao de sequencias, que o Huffman
+  nao aproveita e o gzip (LZ77) aproveita. Usa uma tabela de cerca de 18 MB; em
+  arquivos muito variados ela enche e a medida vale para o inicio do arquivo.
+
+Com isso o arquivo e encaixado num dos tres cenarios do relatorio:
+
+* BAIXA: entropia >= 7,5 e pelo menos 50% de janelas ineditas (testes/baixa.bin).
+* ALTA: menos de 0,1% de janelas ineditas (testes/alta.txt).
+* MEDIA: os demais casos (testes/media.txt, e tambem codigo-fonte e texto
+  comum, que ficaram entre 34% e 67% de janelas ineditas).
+
+O veredito usa a razao prevista: NAO COMPENSA se for >= 1, COMPENSA POUCO se
+estiver acima de 0,9 e COMPENSA abaixo disso. Arquivos com menos de 8 bytes
+ficam com cenario indefinido.
 
 Casos de borda e limites
 -----------------------
@@ -100,6 +144,16 @@ Media   | gzip      |                  |                    |         |         
 Alta    | Zipz      |                  |                    |         |                |
 Alta    | gzip      |                  |                    |         |                |
 
+Analise de redundancia dos arquivos de testes/ (opcao 5):
+
+Cenario | Arquivo   | Entropia (bits/byte) | Rmin = H/8 | Zipz previsto | Trechos repetidos | Veredito
+Baixa   | baixa.bin | 7,9998               | 1,0000     | 1,0020        | 0,000%            | NAO COMPENSA
+Media   | media.txt | 4,4713               | 0,5589     | 0,5665        | 99,348%           | COMPENSA
+Alta    | alta.txt  | 4,3239               | 0,5405     | 0,5483        | 99,997%           | COMPENSA
+
+O Zipz previsto e igual a razao medida na compressao real. Se baixa.bin for
+gerado de novo com gerar_testes.sh, os numeros dele mudam um pouco.
+
 Discussao esperada
 ------------------
 Huffman atribui codigos curtos a bytes frequentes, mas nao identifica
@@ -110,6 +164,13 @@ ser menor porque combina LZ77 com Huffman. Em dados ja comprimidos ou quase
 uniformes, o cabecalho fixo de 2062 bytes pode fazer o Zipz crescer; gzip
 tambem tem cabecalho, mas seu metodo e mais adaptavel.
 
+A analise de redundancia mostra isso em numeros. Para o Huffman, media.txt
+e alta.txt sao quase iguais: entropia de 4,47 e 4,32 bits por byte, razao
+minima de 0,559 e 0,541. O que separa os dois cenarios e a repeticao de
+trechos (0,65% contra 0,003% de janelas ineditas), e por isso o gzip chega a
+0,053 e 0,003, bem abaixo da razao minima de um codigo byte a byte. No
+cenario baixo a entropia e quase 8 e nao ha o que aproveitar.
+
 Extensoes possiveis
 ------------------
 Checksum: acrescentar CRC-32 ao cabecalho ou rodape e conferir durante a
@@ -119,7 +180,8 @@ Huffman de palavras: substituir simbolos-byte por tokens delimitados e
 definir como preservar exatamente separadores e bytes arbitrarios.
 LZ77 + Huffman: gerar tokens de literal ou (distancia, comprimento), depois
 codificar tokens com Huffman; isso requer novo formato/versionamento.
-Busca comprimida: requer indice de blocos ou pontos de reinicio; o formato
+Busca comprimida: a busca sequencial ja existe (opcao 4). Pular direto para
+um trecho do meio exigiria indice de blocos ou pontos de reinicio; o formato
 atual exige decodificar desde o inicio.
 
 Nota academica: use o projeto para estudo, revise as estruturas e adapte a

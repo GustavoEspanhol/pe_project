@@ -8,7 +8,7 @@
 typedef struct {
     unsigned long frequency;
     unsigned short length;
-    unsigned char bits[32];
+    unsigned char bits[HUFFMAN_MAX_CODE_BITS];
 } DictionaryEntry;
 
 typedef struct {

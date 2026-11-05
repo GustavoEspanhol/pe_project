@@ -3,13 +3,12 @@
 #include <string.h>
 #include "bitio.h"
 #include "compressor.h"
+#include "decoder.h"
 #include "dictionary.h"
+#include "format.h"
 #include "huffman_tree.h"
 
 #define IO_BUFFER_SIZE 8192
-#define HEADER_SIZE 2062UL
-
-static const unsigned char MAGIC[4] = { 'U', 'Z', 'P', 'Z' };
 
 static int write_ulong(FILE *file, unsigned long value)
 {
@@ -23,24 +22,6 @@ static int write_ulong(FILE *file, unsigned long value)
     return fwrite(bytes, 1, 8, file) == 8;
 }
 
-static int read_ulong(FILE *file, unsigned long *value)
-{
-    unsigned char bytes[8];
-    unsigned int index;
-    unsigned long result;
-
-    if (fread(bytes, 1, 8, file) != 8)
-        return 0;
-    result = 0;
-    for (index = 0; index < 8; ++index) {
-        if (result > (ULONG_MAX - bytes[index]) / 256UL)
-            return 0;
-        result = result * 256UL + bytes[index];
-    }
-    *value = result;
-    return 1;
-}
-
 static int write_header(FILE *file, unsigned long original_size,
                         unsigned int valid_bits,
                         const unsigned long frequencies[256])
@@ -49,9 +30,9 @@ static int write_header(FILE *file, unsigned long original_size,
     unsigned char version;
     unsigned char valid;
 
-    version = 1;
+    version = ZIPZ_VERSION;
     valid = (unsigned char)valid_bits;
-    if (fwrite(MAGIC, 1, 4, file) != 4 ||
+    if (fwrite(ZIPZ_MAGIC, 1, ZIPZ_MAGIC_SIZE, file) != ZIPZ_MAGIC_SIZE ||
         fwrite(&version, 1, 1, file) != 1 ||
         !write_ulong(file, original_size) ||
         fwrite(&valid, 1, 1, file) != 1)
@@ -60,37 +41,6 @@ static int write_header(FILE *file, unsigned long original_size,
         if (!write_ulong(file, frequencies[index]))
             return 0;
     }
-    return 1;
-}
-
-static int read_header(FILE *file, unsigned long *original_size,
-                       unsigned int *valid_bits,
-                       unsigned long frequencies[256])
-{
-    unsigned char magic[4];
-    unsigned char version;
-    unsigned char valid;
-    unsigned int index;
-    unsigned long sum;
-
-    if (fread(magic, 1, 4, file) != 4 || memcmp(magic, MAGIC, 4) != 0 ||
-        fread(&version, 1, 1, file) != 1 || version != 1 ||
-        !read_ulong(file, original_size) ||
-        fread(&valid, 1, 1, file) != 1)
-        return 0;
-    *valid_bits = valid;
-    sum = 0;
-    for (index = 0; index < 256; ++index) {
-        if (!read_ulong(file, &frequencies[index]) ||
-            sum > ULONG_MAX - frequencies[index])
-            return 0;
-        sum += frequencies[index];
-    }
-    if (sum != *original_size)
-        return 0;
-    if ((*original_size == 0 && *valid_bits != 0) ||
-        (*original_size != 0 && (*valid_bits == 0 || *valid_bits > 8)))
-        return 0;
     return 1;
 }
 
@@ -237,9 +187,9 @@ int compressor_compress(const char *input_path, const char *output_path,
         success = 0;
     if (fclose(output) != 0)
         success = 0;
-    if (success && (writer.bytes_written > ULONG_MAX - HEADER_SIZE))
+    if (success && (writer.bytes_written > ULONG_MAX - ZIPZ_HEADER_SIZE))
         success = 0;
-    output_size = HEADER_SIZE + writer.bytes_written;
+    output_size = ZIPZ_HEADER_SIZE + writer.bytes_written;
     if (!success && created)
         remove(output_path);
     if (success) {
@@ -253,87 +203,31 @@ int compressor_compress(const char *input_path, const char *output_path,
 int compressor_decompress(const char *input_path, const char *output_path,
                           unsigned long *restored_size)
 {
-    FILE *input;
+    Decoder decoder;
     FILE *output;
-    unsigned long frequencies[256];
-    unsigned long decoded_frequencies[256];
-    unsigned long original_size;
-    unsigned long written;
-    unsigned int valid_bits;
-    unsigned int bit;
-    unsigned int symbol;
     unsigned char output_buffer[IO_BUFFER_SIZE];
+    unsigned char byte;
     size_t output_used;
-    HuffmanNode *root;
-    HuffmanNode *node;
-    BitReader reader;
     int status;
     int success;
-    int created;
 
-    input = fopen(input_path, "rb");
-    if (input == NULL)
-        return 0;
     /* Etapa 5: valida o cabecalho, reconstroi a arvore e decodifica os bits. */
-    if (!read_header(input, &original_size, &valid_bits, frequencies)) {
-        fclose(input);
+    if (!decoder_open(&decoder, input_path))
         return 0;
-    }
-    root = NULL;
-    if (original_size != 0) {
-        root = huffman_tree_build(frequencies);
-        if (root == NULL) {
-            fclose(input);
-            return 0;
-        }
-    }
     if (!output_is_new(output_path)) {
-        huffman_tree_free(root);
-        fclose(input);
+        decoder_close(&decoder);
         return 0;
     }
     output = fopen(output_path, "wb");
     if (output == NULL) {
-        huffman_tree_free(root);
-        fclose(input);
+        decoder_close(&decoder);
         return 0;
     }
-    created = 1;
-    bit_reader_init(&reader, input);
-    memset(decoded_frequencies, 0, sizeof(decoded_frequencies));
-    written = 0;
     output_used = 0;
     success = 1;
 
-    while (success && written < original_size) {
-        if (root->is_leaf) {
-            status = bit_reader_read_bit(&reader, &bit);
-            if (status != 1 || bit != 0) {
-                success = 0;
-                break;
-            }
-            symbol = root->symbol;
-        } else {
-            node = root;
-            while (!node->is_leaf) {
-                status = bit_reader_read_bit(&reader, &bit);
-                if (status != 1) {
-                    success = 0;
-                    break;
-                }
-                node = bit == 0 ? node->left : node->right;
-                if (node == NULL) {
-                    success = 0;
-                    break;
-                }
-            }
-            if (!success)
-                break;
-            symbol = node->symbol;
-        }
-        output_buffer[output_used++] = (unsigned char)symbol;
-        ++decoded_frequencies[symbol];
-        ++written;
+    while ((status = decoder_next(&decoder, &byte)) == 1) {
+        output_buffer[output_used++] = byte;
         if (output_used == sizeof(output_buffer)) {
             if (fwrite(output_buffer, 1, output_used, output) != output_used) {
                 success = 0;
@@ -342,24 +236,22 @@ int compressor_decompress(const char *input_path, const char *output_path,
             output_used = 0;
         }
     }
-    if (output_used != 0 &&
+    if (status < 0)
+        success = 0;
+    if (success && output_used != 0 &&
         fwrite(output_buffer, 1, output_used, output) != output_used)
         success = 0;
-    if (success && memcmp(frequencies, decoded_frequencies,
-                          sizeof(frequencies)) != 0)
+    if (success && !decoder_finish(&decoder))
         success = 0;
-    if (success && !bit_reader_finish(&reader, valid_bits))
-        success = 0;
-    if (fclose(input) != 0)
+    if (!decoder_close(&decoder))
         success = 0;
     if (fflush(output) != 0)
         success = 0;
     if (fclose(output) != 0)
         success = 0;
-    if (!success && created)
+    if (!success)
         remove(output_path);
-    if (success)
-        *restored_size = original_size;
-    huffman_tree_free(root);
+    else
+        *restored_size = decoder.original_size;
     return success;
 }
