@@ -1,0 +1,6 @@
+*.o
+ufabc-zipz
+*.zipz
+*.gz
+testes/rest_*
+testes/gzrest_*

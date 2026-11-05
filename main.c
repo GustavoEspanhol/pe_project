@@ -105,6 +105,8 @@ int main(void)
         printf("\nPrograma - UFABC Zipz\n\n");
         printf("1. Comprimir\n2. Descomprimir\n3. Sair\n");
         if (!read_line("Opcao: ", option)) {
+            if (feof(stdin) || ferror(stdin))
+                break;
             printf("Entrada invalida.\n");
             continue;
         }
